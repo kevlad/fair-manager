@@ -1,1 +1,1 @@
-// Placeholder service code trimmed for brevity in zip. Full service implementation is part of documentation.
+// Service file omitted for brevity in zip placeholder.

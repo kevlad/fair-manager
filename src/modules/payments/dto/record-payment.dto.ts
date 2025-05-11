@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsUUID, IsOptional, IsNumber, Min, IsEnum, IsDateString, IsObject, Length } from 'class-validator';
+import { IsNotEmpty, IsString, IsUUID, IsOptional, IsNumber, Min, IsEnum, IsDateString, IsObject, MaxLength, ValidateIf, Length } from 'class-validator';
 import { BillingPaymentStatus } from '../entities/billing-payment.entity';
 
 export class RecordPaymentDto {
@@ -13,9 +13,10 @@ export class RecordPaymentDto {
   @IsOptional()
   invoiceId?: string;
 
-  @ApiProperty({ example: 'stripe_pm_xxxx', description: 'Method used for payment (e.g., credit_card, bank_transfer, or gateway payment method ID)' })
+  @ApiProperty({ example: 'stripe_card_pm_xxxx', description: 'Method used for payment (e.g., credit_card, bank_transfer, or gateway payment method ID)' })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   paymentMethodUsed: string;
   
   @ApiPropertyOptional({ example: { card_brand: 'visa', last4: '4242' }, description: 'Details about the payment method used' })
@@ -23,9 +24,11 @@ export class RecordPaymentDto {
   @IsObject()
   paymentMethodDetails?: Record<string, any>;
 
-  @ApiPropertyOptional({ example: 'txn_123abc...', description: 'Transaction ID from the payment gateway' })
+  @ApiPropertyOptional({ example: 'txn_123abc...', description: 'Transaction ID from the payment gateway (required if status is SUCCEEDED from a gateway)' })
   @IsOptional()
   @IsString()
+  @MaxLength(255)
+  @ValidateIf(o => o.status === BillingPaymentStatus.SUCCEEDED && !o.paymentMethodUsed.includes('manual'))
   paymentGatewayTransactionId?: string;
 
   @ApiProperty({ example: 99.9900, description: 'Amount paid' })
@@ -33,7 +36,7 @@ export class RecordPaymentDto {
   @Min(0.01)
   amount: number;
 
-  @ApiProperty({ example: 'USD', description: 'Currency of the payment' })
+  @ApiProperty({ example: 'USD', description: 'Currency of the payment (3-letter ISO code)' })
   @IsString()
   @Length(3,3)
   currency: string;
@@ -43,17 +46,22 @@ export class RecordPaymentDto {
   @IsNotEmpty()
   status: BillingPaymentStatus;
 
-  @ApiProperty({ example: '2025-01-20T10:00:00Z', description: 'Date/time the payment was confirmed' })
+  @ApiProperty({ example: '2025-01-20T10:00:00Z', description: 'Date/time the payment was confirmed/processed' })
   @IsDateString()
   @IsNotEmpty()
   paymentDate: string;
 
-  @ApiPropertyOptional({ description: 'Raw response or relevant data from the payment gateway' })
+  @ApiPropertyOptional({ example: '2025-01-21', description: 'Date funds are considered settled/available (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsDateString()
+  effectiveDate?: string;
+
+  @ApiPropertyOptional({ description: 'Raw response or relevant data from the payment gateway (if applicable)' })
   @IsOptional()
   @IsObject()
   gatewayResponse?: Record<string, any>;
 
-  @ApiPropertyOptional({ example: 'Payment for INV-001', description: 'Internal notes about the payment' })
+  @ApiPropertyOptional({ example: 'Payment for INV-001 via wire transfer ref #12345', description: 'Internal notes about the payment' })
   @IsOptional()
   @IsString()
   notes?: string;

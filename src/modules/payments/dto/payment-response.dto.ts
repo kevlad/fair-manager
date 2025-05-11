@@ -14,13 +14,13 @@ export class PaymentResponseDto {
   @ApiProperty()
   paymentMethodUsed: string;
   
-  @ApiPropertyOptional({ type: 'object' })
+  @ApiPropertyOptional({ type: 'object', nullable: true })
   paymentMethodDetails?: Record<string, any> | null;
 
   @ApiPropertyOptional({ nullable: true })
   paymentGatewayTransactionId?: string | null;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Amount of the payment' })
   amount: number;
 
   @ApiProperty()
@@ -29,13 +29,16 @@ export class PaymentResponseDto {
   @ApiProperty({ enum: BillingPaymentStatus })
   status: BillingPaymentStatus;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Date payment was confirmed' })
   paymentDate: Date;
+  
+  @ApiPropertyOptional({ type: String, format: 'date', nullable: true, description: 'Date funds are considered settled' })
+  effectiveDate?: Date | null;
 
   @ApiPropertyOptional({ nullable: true })
   notes?: string | null;
   
-  @ApiProperty()
+  @ApiProperty({ description: 'Total amount refunded from this payment' })
   refundedAmount: number;
 
   @ApiProperty()
@@ -55,6 +58,7 @@ export class PaymentResponseDto {
     this.currency = payment.currency;
     this.status = payment.status;
     this.paymentDate = payment.paymentDate;
+    this.effectiveDate = payment.effectiveDate;
     this.notes = payment.notes;
     this.refundedAmount = Number(payment.refundedAmount);
     this.createdAt = payment.createdAt;

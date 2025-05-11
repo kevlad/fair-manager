@@ -1,20 +1,20 @@
-import { Entity, PrimaryColumn, Column, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn } from 'typeorm';
-import { BillingInvoiceEntity } from '../../invoices/entities/billing-invoice.entity'; // Assuming path
-// If you have a BillingPaymentGatewayEntity for BSA's own gateway configs:
-// import { BillingPaymentGatewayEntity } from '../../payment-gateways/entities/billing-payment-gateway.entity';
+import { Entity, PrimaryColumn, Column, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn, VersionColumn } from 'typeorm';
+import { BillingInvoiceEntity } from '../../invoices/entities/billing-invoice.entity';
+// If you have a BillingPaymentGatewayConfigEntity for BSA's own gateway configs:
+// import { BillingPaymentGatewayConfigEntity } from '../../payment-gateways/entities/billing-payment-gateway-config.entity'; // Adjust path
 
 export enum BillingPaymentStatus {
-  PENDING = 'pending', // Payment initiated but not yet confirmed
+  PENDING = 'pending', // Payment initiated but not yet confirmed/processed
   SUCCEEDED = 'succeeded', // Payment successful
-  FAILED = 'failed', // Payment failed
-  REFUNDED = 'refunded', // Payment was refunded (fully or partially)
-  PARTIALLY_REFUNDED = 'partially_refunded',
-  DISPUTED = 'disputed', // Payment is under dispute
-  REQUIRES_ACTION = 'requires_action', // e.g., 3D Secure needed
-  CANCELED = 'canceled', // Payment was canceled before completion
+  FAILED = 'failed', // Payment attempt failed
+  REFUNDED = 'refunded', // Payment was fully refunded
+  PARTIALLY_REFUNDED = 'partially_refunded', // Payment was partially refunded
+  DISPUTED = 'disputed', // Payment is under dispute (chargeback)
+  REQUIRES_ACTION = 'requires_action', // e.g., 3D Secure needed, or other SCA
+  CANCELED = 'canceled', // Payment was canceled by user or system before completion
 }
 
-@Entity('billing_payments')
+@Entity('billing_payments') // Table name for payments BSA receives from tenants
 export class BillingPaymentEntity {
   @PrimaryColumn('char', { length: 36 }) // UUID
   id: string;
@@ -25,35 +25,35 @@ export class BillingPaymentEntity {
 
   @Index()
   @Column({ name: 'invoice_id', type: 'char', length: 36, nullable: true })
-  invoiceId: string | null; // The invoice this payment is for (can be null for pre-payments)
+  invoiceId: string | null; // The BSA invoice this payment is for (can be null for account top-ups/credits)
 
-  @ManyToOne(() => BillingInvoiceEntity, { onDelete: 'SET NULL', nullable: true })
+  @ManyToOne(() => BillingInvoiceEntity, { onDelete: 'SET NULL', nullable: true, lazy: true }) // Lazy load invoice
   @JoinColumn({ name: 'invoice_id' })
-  invoice: BillingInvoiceEntity | null;
+  invoice: Promise<BillingInvoiceEntity | null>; // Use Promise for lazy loading
 
   @Index()
   @Column({ name: 'payment_gateway_config_id', type: 'char', length: 36, nullable: true })
-  paymentGatewayConfigId: string | null; // FK to BSA's own billing_payment_gateways table if used
+  paymentGatewayConfigId: string | null; // FK to BSA's own billing_payment_gateway_configs table (if used)
 
-  // @ManyToOne(() => BillingPaymentGatewayEntity, { onDelete: 'SET NULL', nullable: true })
+  // @ManyToOne(() => BillingPaymentGatewayConfigEntity, { onDelete: 'SET NULL', nullable: true })
   // @JoinColumn({ name: 'payment_gateway_config_id' })
-  // paymentGatewayConfig: BillingPaymentGatewayEntity | null;
+  // paymentGatewayConfig: BillingPaymentGatewayConfigEntity | null;
 
-  @Column({ name: 'payment_method_used', type: 'varchar', length: 50 })
-  paymentMethodUsed: string; // e.g., credit_card, bank_transfer, paypal, stripe_pm_xxxx
+  @Column({ name: 'payment_method_used', type: 'varchar', length: 100 })
+  paymentMethodUsed: string; // e.g., 'stripe_card_pm_xxxx', 'paypal_transaction', 'manual_bank_transfer'
 
   @Column({ name: 'payment_method_details', type: 'json', nullable: true })
-  paymentMethodDetails: Record<string, any> | null; // e.g., { card_brand: 'visa', last4: '4242' }
+  paymentMethodDetails: Record<string, any> | null; // e.g., { card_brand: 'visa', last4: '4242', bank_name: '...' }
 
   @Index({ unique: true, where: "payment_gateway_transaction_id IS NOT NULL" })
   @Column({ name: 'payment_gateway_transaction_id', type: 'varchar', length: 255, nullable: true })
-  paymentGatewayTransactionId: string | null; // Transaction ID from the payment gateway
+  paymentGatewayTransactionId: string | null; // Transaction ID from the external payment gateway
 
-  @Column({ type: 'decimal', precision: 12, scale: 4 })
+  @Column({ type: 'decimal', precision: 12, scale: 4 }) // Using 4 decimal places for precision
   amount: number;
 
   @Column({ type: 'char', length: 3 })
-  currency: string;
+  currency: string; // e.g., USD, EUR, RON
 
   @Index()
   @Column({
@@ -64,21 +64,27 @@ export class BillingPaymentEntity {
   })
   status: BillingPaymentStatus;
 
-  @Column({ name: 'payment_date', type: 'timestamp' }) // Timestamp when payment was confirmed/processed
+  @Column({ name: 'payment_date', type: 'timestamp' }) // Timestamp when payment was confirmed/processed by gateway or manually
   paymentDate: Date;
 
   @Column({ name: 'gateway_response', type: 'json', nullable: true })
-  gatewayResponse: Record<string, any> | null; // Store raw response from gateway for auditing
+  gatewayResponse: Record<string, any> | null; // Store raw/relevant response from gateway for auditing/debugging
 
   @Column({ type: 'text', nullable: true })
-  notes: string | null; // Internal notes about the payment
+  notes: string | null; // Internal notes about the payment (e.g., manual payment reference)
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt: Date;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
   updatedAt: Date;
+  
+  @VersionColumn()
+  version: number;
 
-  @Column({ name: 'refunded_amount', type: 'decimal', precision: 12, scale: 4, default: 0.0 })
+  @Column({ name: 'refunded_amount', type: 'decimal', precision: 12, scale: 4, default: 0.0000 })
   refundedAmount: number;
+
+  @Column({ name: 'effective_date', type: 'date', nullable: true }) // When the funds are considered settled/available
+  effectiveDate: Date | null;
 }
